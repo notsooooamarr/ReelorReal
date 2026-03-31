@@ -1,0 +1,13 @@
+# Data & model (upload manually to server)
+downloads/
+data/dataset.csv
+data/features.csv
+data/correction_counter.txt
+cookies.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
