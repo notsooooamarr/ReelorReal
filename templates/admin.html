@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RealOrReel — Admin Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css"/>
+  <style>
+    .admin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge.ai   { background: #fee2e2; color: #dc2626; }
+    .badge.real { background: #dcfce7; color: #16a34a; }
+    .history-item {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .history-item.correct  { border-left: 3px solid #16a34a; }
+    .history-item.corrected{ border-left: 3px solid #f59e0b; }
+    .history-meta {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .history-link {
+      font-size: 13px;
+      color: #2563eb;
+      word-break: break-all;
+      display: block;
+      margin-bottom: 10px;
+    }
+    .feedback-btns {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-correct {
+      padding: 7px 16px;
+      background: #16a34a;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+    }
+    .btn-wrong {
+      padding: 7px 16px;
+      background: #dc2626;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+    }
+    .btn-correct:disabled, .btn-wrong:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .feedback-status {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+    .feedback-status.correct   { background:#dcfce7; color:#16a34a; }
+    .feedback-status.corrected { background:#fef3c7; color:#d97706; }
+    .stats-row {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .stat-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+      flex: 1;
+      min-width: 100px;
+      text-align: center;
+    }
+    .stat-num  { font-size: 24px; font-weight: 700; }
+    .stat-label{ font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .retrain-notice {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #92400e;
+      margin-bottom: 16px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+<div class="container" style="max-width:720px;">
+
+  <div class="admin-header">
+    <div class="logo" style="font-size:22px;">RealOrReel Admin</div>
+    <a href="/" style="font-size:13px; color:var(--muted); text-decoration:none;">← Public site</a>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-row">
+    <div class="stat-box">
+      <div class="stat-num">{{ history|length }}</div>
+      <div class="stat-label">Total Detections</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">{{ history|selectattr('prediction', 'equalto', 1)|list|length }}</div>
+      <div class="stat-label">AI Detected</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">{{ history|selectattr('prediction', 'equalto', 0)|list|length }}</div>
+      <div class="stat-label">Real Detected</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">{{ history|selectattr('feedback', 'equalto', 'corrected')|list|length }}</div>
+      <div class="stat-label">Corrections Made</div>
+    </div>
+  </div>
+
+  <div class="retrain-notice" id="retrainNotice">
+    🔄 Model is retraining in background with the correction...
+  </div>
+
+  {% if history %}
+    {% for entry in history %}
+    <div class="history-item {% if entry.feedback == 'correct' %}correct{% elif entry.feedback == 'corrected' %}corrected{% endif %}" id="item-{{ entry.id }}">
+      <div class="history-meta">
+        {{ entry.timestamp }} &nbsp;·&nbsp;
+        <span class="badge {% if entry.prediction == 1 %}ai{% else %}real{% endif %}">
+          {{ entry.label }}
+        </span>
+        &nbsp;·&nbsp; {{ entry.confidence }}% confidence
+      </div>
+      <a class="history-link" href="{{ entry.link }}" target="_blank">{{ entry.link }}</a>
+      <div class="feedback-btns" id="btns-{{ entry.id }}">
+        {% if entry.feedback %}
+          <span class="feedback-status {{ entry.feedback }}">
+            {% if entry.feedback == 'correct' %}✅ Correct{% else %}⚠ Corrected & Retrained{% endif %}
+          </span>
+        {% else %}
+          <button class="btn-correct" onclick="sendFeedback('{{ entry.id }}', 'yes')">✅ Yes, {{ entry.label }}</button>
+          <button class="btn-wrong" onclick="sendFeedback('{{ entry.id }}', 'no')">❌ Wrong — it was {{ 'Real Video' if entry.prediction == 1 else 'AI Generated' }}</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="card" style="text-align:center; color:var(--muted); padding:40px;">
+      No detections yet. Users will appear here after they use the site.
+    </div>
+  {% endif %}
+
+</div>
+
+<script>
+  const ADMIN_CODE = "{{ code }}";
+
+  async function sendFeedback(entryId, correct) {
+    const btnDiv = document.getElementById(`btns-${entryId}`);
+    btnDiv.querySelectorAll('button').forEach(b => b.disabled = true);
+
+    const fd = new FormData();
+    fd.append('entry_id', entryId);
+    fd.append('correct', correct);
+    fd.append('code', ADMIN_CODE);
+
+    const res  = await fetch('/admin/feedback', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (data.status === 'marked_correct') {
+      btnDiv.innerHTML = '<span class="feedback-status correct">✅ Correct</span>';
+      document.getElementById(`item-${entryId}`).classList.add('correct');
+    } else if (data.status === 'corrected_retraining') {
+      btnDiv.innerHTML = '<span class="feedback-status corrected">⚠ Corrected & Retraining...</span>';
+      document.getElementById(`item-${entryId}`).classList.add('corrected');
+      document.getElementById('retrainNotice').style.display = 'block';
+      setTimeout(() => {
+        document.getElementById('retrainNotice').style.display = 'none';
+        btnDiv.innerHTML = '<span class="feedback-status corrected">⚠ Corrected & Retrained</span>';
+      }, 8000);
+    }
+  }
+</script>
+</body>
+</html>

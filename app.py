@@ -1,14 +1,19 @@
 """
 RealOrReel — FastAPI Backend
+Public: Detect + Download
+Admin: History + Correct/Wrong + Auto retrain
 """
 
 import os
 import sys
+import csv
+import json
 import warnings
+import subprocess
 warnings.filterwarnings("ignore")
 
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, Form, BackgroundTasks
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import joblib
@@ -19,22 +24,20 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from modules.extractor import extract_features_from_video
 
-# ── Setup ──────────────────────────────────────────────────────────────────────
-BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH   = os.path.join(BASE_DIR, "models", "detector.pkl")
-TEMP_DIR     = os.path.join(BASE_DIR, "downloads", "predictions")
-COOKIES_PATH = os.path.join(BASE_DIR, "cookies.txt")
+# ── Config ─────────────────────────────────────────────────────────────────────
+BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH    = os.path.join(BASE_DIR, "models", "detector.pkl")
+TEMP_DIR      = os.path.join(BASE_DIR, "downloads", "temp")
+COOKIES_PATH  = os.path.join(BASE_DIR, "cookies.txt")
+DATA_DIR      = os.path.join(BASE_DIR, "data")
+HISTORY_FILE  = os.path.join(DATA_DIR, "history.json")
+DATASET_CSV   = os.path.join(DATA_DIR, "dataset.csv")
+FEATURES_CSV  = os.path.join(DATA_DIR, "features.csv")
+
+ADMIN_CODE    = "ROR@X9#mK2$vP7!qZ"  # Secret admin code
 
 os.makedirs(TEMP_DIR, exist_ok=True)
-
-app       = FastAPI()
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Load model once at startup
-model = None
-if os.path.exists(MODEL_PATH):
-    model = joblib.load(MODEL_PATH)
+os.makedirs(DATA_DIR, exist_ok=True)
 
 FEATURE_COLS = [
     "avg_brightness", "brightness_std",
@@ -50,11 +53,38 @@ FEATURE_COLS = [
     "lipsync_score", "zero_crossing_rate",
 ]
 
+app       = FastAPI()
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# ── Download ───────────────────────────────────────────────────────────────────
-def download_reel(link: str) -> str | None:
-    timestamp    = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    out_template = os.path.join(TEMP_DIR, f"pred_{timestamp}.%(ext)s")
+# Load model
+model = None
+if os.path.exists(MODEL_PATH):
+    model = joblib.load(MODEL_PATH)
+
+
+# ── History helpers ────────────────────────────────────────────────────────────
+def load_history() -> list:
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_history(history: list):
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2)
+
+def add_to_history(entry: dict):
+    history = load_history()
+    history.insert(0, entry)  # newest first
+    save_history(history)
+
+
+# ── Download helper ────────────────────────────────────────────────────────────
+def download_reel(link: str, filename: str = None) -> str | None:
+    if not filename:
+        filename = f"pred_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    out_template = os.path.join(TEMP_DIR, f"{filename}.%(ext)s")
 
     ydl_opts = {
         "outtmpl":             out_template,
@@ -68,14 +98,81 @@ def download_reel(link: str) -> str | None:
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info     = ydl.extract_info(link, download=True)
-            filename = ydl.prepare_filename(info)
-            base     = os.path.splitext(filename)[0]
+            prepared = ydl.prepare_filename(info)
+            base     = os.path.splitext(prepared)[0]
             for ext in [".mp4", ".mkv", ".webm", ".mov"]:
                 if os.path.exists(base + ext):
                     return base + ext
-            return filename if os.path.exists(filename) else None
+            return prepared if os.path.exists(prepared) else None
     except Exception:
         return None
+
+
+# ── Save correction to dataset ─────────────────────────────────────────────────
+def save_correction_and_retrain(link: str, filename: str, correct_label: int, features: dict):
+    """Save corrected entry to dataset + features, then retrain."""
+
+    # dataset.csv
+    exists = os.path.exists(DATASET_CSV)
+    with open(DATASET_CSV, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["filename", "link", "is_ai", "downloaded_at"])
+        if not exists:
+            writer.writeheader()
+        writer.writerow({
+            "filename":      filename,
+            "link":          link,
+            "is_ai":         correct_label,
+            "downloaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+
+    # features.csv
+    all_cols    = ["filename", "is_ai"] + FEATURE_COLS
+    feat_exists = os.path.exists(FEATURES_CSV)
+    with open(FEATURES_CSV, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=all_cols)
+        if not feat_exists:
+            writer.writeheader()
+        row = {"filename": filename, "is_ai": correct_label}
+        row.update({col: features.get(col, 0.0) for col in FEATURE_COLS})
+        writer.writerow(row)
+
+    # Retrain
+    retrain_model()
+
+
+def retrain_model():
+    """Retrain model from features.csv."""
+    global model
+    try:
+        import pandas as pd
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        df = pd.read_csv(FEATURES_CSV)
+        df = df.dropna(subset=["is_ai"] + FEATURE_COLS)
+        df = df[df["is_ai"].isin([0, 1])]
+
+        if len(df) < 10:
+            return
+
+        X = df[FEATURE_COLS].values.astype(float)
+        y = df["is_ai"].values.astype(int)
+
+        pipeline = Pipeline([
+            ("scaler", StandardScaler()),
+            ("model", RandomForestClassifier(
+                n_estimators=200,
+                class_weight="balanced",
+                random_state=42,
+                n_jobs=-1
+            ))
+        ])
+        pipeline.fit(X, y)
+        joblib.dump(pipeline, MODEL_PATH)
+        model = pipeline
+    except Exception as e:
+        print(f"Retrain failed: {e}")
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -92,35 +189,132 @@ async def predict(link: str = Form(...)):
     if "instagram.com" not in link:
         return JSONResponse({"error": "Please enter a valid Instagram Reel link."}, status_code=400)
 
-    # Download
-    video_path = download_reel(link)
-    if not video_path:
-        return JSONResponse({
-            "error": "Could not download this reel. It may have been deleted or is unavailable."
-        }, status_code=400)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    filename  = f"reel_{timestamp}.mp4"
 
-    # Extract features
+    video_path = download_reel(link, f"reel_{timestamp}")
+    if not video_path:
+        return JSONResponse({"error": "Could not download this reel. It may have been deleted or is unavailable."}, status_code=400)
+
     features = extract_features_from_video(video_path)
 
-    # Delete temp video
-    try:
-        os.remove(video_path)
-    except Exception:
-        pass
-
     if not features:
+        try:
+            os.remove(video_path)
+        except Exception:
+            pass
         return JSONResponse({"error": "Could not analyze this video."}, status_code=500)
 
-    # Predict
     X          = np.array([[features[col] for col in FEATURE_COLS]])
     prediction = int(model.predict(X)[0])
     proba      = model.predict_proba(X)[0]
+    confidence = round(float(proba[prediction]) * 100, 1)
+    entry_id   = timestamp
+
+    # Save to history
+    add_to_history({
+        "id":         entry_id,
+        "link":       link,
+        "filename":   filename,
+        "prediction": prediction,
+        "label":      "AI Generated" if prediction == 1 else "Real Video",
+        "confidence": confidence,
+        "features":   features,
+        "feedback":   None,
+        "timestamp":  datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
+    # Keep video for download
+    actual_filename = os.path.basename(video_path)
 
     return JSONResponse({
         "prediction": prediction,
         "label":      "AI Generated" if prediction == 1 else "Real Video",
-        "confidence": round(float(proba[prediction]) * 100, 1),
+        "confidence": confidence,
+        "entry_id":   entry_id,
+        "filename":   actual_filename,
     })
+
+
+@app.get("/download/{filename}")
+async def download(filename: str):
+    """Serve video file for download."""
+    # Security: only allow files in temp dir
+    safe_filename = os.path.basename(filename)
+    file_path     = os.path.join(TEMP_DIR, safe_filename)
+    if not os.path.exists(file_path):
+        return JSONResponse({"error": "File not found."}, status_code=404)
+    return FileResponse(
+        file_path,
+        media_type="video/mp4",
+        filename=safe_filename,
+        headers={"Content-Disposition": f"attachment; filename={safe_filename}"}
+    )
+
+
+@app.delete("/cleanup/{filename}")
+async def cleanup(filename: str):
+    """Delete temp file after user downloads."""
+    safe_filename = os.path.basename(filename)
+    file_path     = os.path.join(TEMP_DIR, safe_filename)
+    try:
+        os.remove(file_path)
+    except Exception:
+        pass
+    return JSONResponse({"status": "ok"})
+
+
+# ── Admin routes ───────────────────────────────────────────────────────────────
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request, code: str = ""):
+    if code != ADMIN_CODE:
+        return templates.TemplateResponse("admin_login.html", {"request": request, "error": code != ""})
+    history = load_history()
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "history": history,
+        "code":    ADMIN_CODE,
+    })
+
+
+@app.post("/admin/feedback")
+async def admin_feedback(
+    background_tasks: BackgroundTasks,
+    entry_id: str    = Form(...),
+    correct:  str    = Form(...),  # "yes" or "no"
+    code:     str    = Form(...),
+):
+    if code != ADMIN_CODE:
+        return JSONResponse({"error": "Unauthorized"}, status_code=403)
+
+    history = load_history()
+    entry   = next((h for h in history if h["id"] == entry_id), None)
+
+    if not entry:
+        return JSONResponse({"error": "Entry not found"}, status_code=404)
+
+    if correct == "yes":
+        entry["feedback"] = "correct"
+        save_history(history)
+        return JSONResponse({"status": "marked_correct"})
+
+    else:
+        # Model was wrong — flip label and retrain
+        correct_label         = 1 if entry["prediction"] == 0 else 0
+        entry["feedback"]     = "corrected"
+        entry["correct_label"]= correct_label
+        save_history(history)
+
+        # Retrain in background
+        background_tasks.add_task(
+            save_correction_and_retrain,
+            entry["link"],
+            entry["filename"],
+            correct_label,
+            entry["features"],
+        )
+
+        return JSONResponse({"status": "corrected_retraining"})
 
 
 if __name__ == "__main__":

@@ -1,137 +1,132 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>RealOrReel</title>
+  <title>RealOrReel — AI Reel Detector</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css"/>
 </head>
 <body>
+<div class="container">
 
-  <div class="container">
+  <header>
+    <div class="logo">RealOrReel</div>
+    <p class="tagline">Paste an Instagram Reel link — instantly know if it's AI generated.</p>
+  </header>
 
-    <!-- Header -->
-    <header>
-      <div class="logo">RealOrReel</div>
-      <p class="tagline">Paste an Instagram Reel link — we'll tell you if it's AI generated.</p>
-    </header>
-
-    <!-- Input -->
-    <div class="card">
-      <form id="detectForm">
-        <div class="input-group">
-          <input
-            type="url"
-            id="reelLink"
-            placeholder="https://www.instagram.com/reel/..."
-            required
-            autocomplete="off"
-          />
-          <button type="submit" id="submitBtn">
-            <span id="btnText">Detect</span>
-            <span id="btnLoader" class="loader" style="display:none;"></span>
-          </button>
-        </div>
-      </form>
-    </div>
-
-    <!-- Result -->
-    <div class="result-card" id="resultCard" style="display:none;">
-      <div class="result-icon" id="resultIcon"></div>
-      <div class="result-label" id="resultLabel"></div>
-      <div class="result-sub" id="resultSub"></div>
-    </div>
-
-    <!-- Error -->
-    <div class="error-card" id="errorCard" style="display:none;">
-      <span id="errorMsg"></span>
-    </div>
-
-    <!-- How it works -->
-    <div class="how-it-works">
-      <h3>How it works</h3>
-      <div class="steps">
-        <div class="step">
-          <div class="step-num">1</div>
-          <div class="step-text">Paste any public Instagram Reel link</div>
-        </div>
-        <div class="step">
-          <div class="step-num">2</div>
-          <div class="step-text">We analyze 24 visual & audio signals</div>
-        </div>
-        <div class="step">
-          <div class="step-num">3</div>
-          <div class="step-text">Get an instant AI or Real verdict</div>
-        </div>
+  <div class="card">
+    <form id="detectForm">
+      <div class="input-group">
+        <input type="url" id="reelLink" placeholder="https://www.instagram.com/reel/..." required autocomplete="off"/>
+        <button type="submit" id="submitBtn">
+          <span id="btnText">Detect</span>
+          <span id="btnLoader" class="loader" style="display:none;"></span>
+        </button>
       </div>
-    </div>
-
-    <footer>
-      Built by Amar &nbsp;·&nbsp; RealOrReel &nbsp;·&nbsp; ~90% accuracy
-    </footer>
-
+    </form>
   </div>
 
-  <script>
-    const form       = document.getElementById('detectForm');
-    const input      = document.getElementById('reelLink');
-    const submitBtn  = document.getElementById('submitBtn');
-    const btnText    = document.getElementById('btnText');
-    const btnLoader  = document.getElementById('btnLoader');
-    const resultCard = document.getElementById('resultCard');
-    const resultIcon = document.getElementById('resultIcon');
-    const resultLabel= document.getElementById('resultLabel');
-    const resultSub  = document.getElementById('resultSub');
-    const errorCard  = document.getElementById('errorCard');
-    const errorMsg   = document.getElementById('errorMsg');
+  <div class="result-card" id="resultCard" style="display:none;">
+    <div class="result-icon" id="resultIcon"></div>
+    <div class="result-label" id="resultLabel"></div>
+    <div class="result-sub" id="resultSub"></div>
+    <a id="downloadBtn" class="download-btn" style="display:none;" href="#">
+      ⬇ Download Reel
+    </a>
+  </div>
 
-    function setLoading(loading) {
-      submitBtn.disabled = loading;
-      btnText.style.display  = loading ? 'none' : 'inline';
-      btnLoader.style.display= loading ? 'inline-block' : 'none';
-      if (loading) {
+  <div class="error-card" id="errorCard" style="display:none;">
+    <span id="errorMsg"></span>
+  </div>
+
+  <div class="how-it-works">
+    <h3>How it works</h3>
+    <div class="steps">
+      <div class="step"><div class="step-num">1</div><div class="step-text">Paste any public Instagram Reel link</div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-text">We analyze 24 visual & audio signals</div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-text">Get an instant AI or Real verdict + download</div></div>
+    </div>
+  </div>
+
+  <footer>Built by Amar &nbsp;·&nbsp; RealOrReel &nbsp;·&nbsp; ~90% accuracy</footer>
+
+</div>
+
+<script>
+  const form        = document.getElementById('detectForm');
+  const input       = document.getElementById('reelLink');
+  const submitBtn   = document.getElementById('submitBtn');
+  const btnText     = document.getElementById('btnText');
+  const btnLoader   = document.getElementById('btnLoader');
+  const resultCard  = document.getElementById('resultCard');
+  const resultIcon  = document.getElementById('resultIcon');
+  const resultLabel = document.getElementById('resultLabel');
+  const resultSub   = document.getElementById('resultSub');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const errorCard   = document.getElementById('errorCard');
+  const errorMsg    = document.getElementById('errorMsg');
+
+  let currentFilename = null;
+
+  function setLoading(on) {
+    submitBtn.disabled    = on;
+    btnText.style.display = on ? 'none' : 'inline';
+    btnLoader.style.display = on ? 'inline-block' : 'none';
+    if (on) {
+      resultCard.style.display = 'none';
+      errorCard.style.display  = 'none';
+    }
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const link = input.value.trim();
+    if (!link) return;
+    setLoading(true);
+
+    try {
+      const fd = new FormData();
+      fd.append('link', link);
+      const res  = await fetch('/predict', { method: 'POST', body: fd });
+      const data = await res.json();
+
+      if (data.error) {
+        errorMsg.textContent    = data.error;
+        errorCard.style.display = 'flex';
         resultCard.style.display = 'none';
+      } else {
+        const isAI = data.prediction === 1;
+        resultIcon.textContent  = isAI ? '🤖' : '🎥';
+        resultLabel.textContent = data.label;
+        resultLabel.className   = 'result-label ' + (isAI ? 'ai' : 'real');
+        resultSub.textContent   = `Analyzed with ${data.confidence}% confidence`;
+
+        // Download button
+        currentFilename = data.filename;
+        downloadBtn.href = `/download/${data.filename}`;
+        downloadBtn.style.display = 'inline-flex';
+
+        resultCard.style.display = 'flex';
         errorCard.style.display  = 'none';
       }
+    } catch {
+      errorMsg.textContent    = 'Something went wrong. Please try again.';
+      errorCard.style.display = 'flex';
     }
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const link = input.value.trim();
-      if (!link) return;
+    setLoading(false);
+  });
 
-      setLoading(true);
-
-      try {
-        const formData = new FormData();
-        formData.append('link', link);
-
-        const res  = await fetch('/predict', { method: 'POST', body: formData });
-        const data = await res.json();
-
-        if (data.error) {
-          errorMsg.textContent     = data.error;
-          errorCard.style.display  = 'flex';
-          resultCard.style.display = 'none';
-        } else {
-          const isAI = data.prediction === 1;
-          resultIcon.textContent  = isAI ? '🤖' : '🎥';
-          resultLabel.textContent = data.label;
-          resultLabel.className   = 'result-label ' + (isAI ? 'ai' : 'real');
-          resultSub.textContent   = `Analyzed with ${data.confidence}% confidence`;
-          resultCard.style.display= 'flex';
-          errorCard.style.display = 'none';
-        }
-      } catch (err) {
-        errorMsg.textContent    = 'Something went wrong. Please try again.';
-        errorCard.style.display = 'flex';
-      }
-
-      setLoading(false);
-    });
-  </script>
-
+  // Cleanup after download
+  downloadBtn.addEventListener('click', () => {
+    if (currentFilename) {
+      setTimeout(() => {
+        fetch(`/cleanup/${currentFilename}`, { method: 'DELETE' });
+      }, 5000);
+    }
+  });
+</script>
 </body>
 </html>
