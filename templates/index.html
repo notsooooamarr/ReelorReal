@@ -70,13 +70,42 @@
 
   let currentFilename = null;
 
+  const loadingMessages = [
+    "Downloading reel...",
+    "Analyzing video frames...",
+    "Checking audio signals...",
+    "Running lip-sync detection...",
+    "Consulting the AI oracle...",
+    "Almost there...",
+  ];
+
+  let loadingInterval = null;
+
   function setLoading(on) {
-    submitBtn.disabled    = on;
-    btnText.style.display = on ? 'none' : 'inline';
+    submitBtn.disabled      = on;
+    btnText.style.display   = on ? 'none' : 'inline';
     btnLoader.style.display = on ? 'inline-block' : 'none';
+
     if (on) {
       resultCard.style.display = 'none';
       errorCard.style.display  = 'none';
+      resultCard.style.display = 'none';
+
+      // Show animated loading status
+      let i = 0;
+      resultSub.textContent   = loadingMessages[0];
+      resultIcon.textContent  = '⏳';
+      resultLabel.textContent = 'Analyzing...';
+      resultLabel.className   = 'result-label';
+      resultCard.style.display = 'flex';
+
+      loadingInterval = setInterval(() => {
+        i = (i + 1) % loadingMessages.length;
+        resultSub.textContent = loadingMessages[i];
+      }, 4000);
+
+    } else {
+      clearInterval(loadingInterval);
     }
   }
 
