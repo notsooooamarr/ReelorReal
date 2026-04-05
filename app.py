@@ -146,11 +146,11 @@ def save_correction_and_retrain(link: str, filename: str, correct_label: int, fe
 
 
 def retrain_model():
-    """Retrain model from features.csv."""
+    """Retrain ensemble model from features.csv."""
     global model
     try:
         import pandas as pd
-        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, VotingClassifier
         from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
 
@@ -164,14 +164,24 @@ def retrain_model():
         X = df[FEATURE_COLS].values.astype(float)
         y = df["is_ai"].values.astype(int)
 
+        rf = RandomForestClassifier(
+            n_estimators=200,
+            class_weight="balanced",
+            random_state=42,
+            n_jobs=-1
+        )
+        gb = GradientBoostingClassifier(
+            n_estimators=100,
+            learning_rate=0.1,
+            random_state=42
+        )
+        ensemble = VotingClassifier(
+            estimators=[("rf", rf), ("gb", gb)],
+            voting="soft"
+        )
         pipeline = Pipeline([
             ("scaler", StandardScaler()),
-            ("model", RandomForestClassifier(
-                n_estimators=200,
-                class_weight="balanced",
-                random_state=42,
-                n_jobs=-1
-            ))
+            ("model", ensemble)
         ])
         pipeline.fit(X, y)
         joblib.dump(pipeline, MODEL_PATH)

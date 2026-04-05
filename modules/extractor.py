@@ -223,7 +223,7 @@ def compute_lipsync_score(mouth_motion_vals: list, audio_energy_vals: list) -> f
 
 # ── Main extractor ─────────────────────────────────────────────────────────────
 
-def extract_features_from_video(video_path: str, sample_rate: int = 10) -> dict | None:
+def extract_features_from_video(video_path: str, sample_rate: int = 20) -> dict | None:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return None
