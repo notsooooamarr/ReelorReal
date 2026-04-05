@@ -29,6 +29,11 @@ BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH    = os.path.join(BASE_DIR, "models", "detector.pkl")
 TEMP_DIR      = os.path.join(BASE_DIR, "downloads", "temp")
 COOKIES_PATH  = os.path.join(BASE_DIR, "cookies.txt")
+# Write cookies from env variable if present
+_cookies_env = os.environ.get("COOKIES_CONTENT")
+if _cookies_env and not os.path.exists(COOKIES_PATH):
+    with open(COOKIES_PATH, "w") as f:
+        f.write(_cookies_env)
 DATA_DIR      = os.path.join(BASE_DIR, "data")
 HISTORY_FILE  = os.path.join(DATA_DIR, "history.json")
 DATASET_CSV   = os.path.join(DATA_DIR, "dataset.csv")
