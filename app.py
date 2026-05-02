@@ -1,5 +1,5 @@
 """
-RealOrReel — FastAPI Backend
+ReelOrReal — FastAPI Backend
 Public: Detect + Download
 Admin: History + Correct/Wrong + Auto retrain
 """
@@ -23,6 +23,33 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from modules.extractor import extract_features_from_video
+
+import psycopg2
+
+def get_db():
+    return psycopg2.connect(os.environ.get("DATABASE_URL"))
+
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS history (
+            id TEXT PRIMARY KEY,
+            link TEXT,
+            filename TEXT,
+            prediction INTEGER,
+            label TEXT,
+            confidence REAL,
+            features JSONB,
+            feedback TEXT,
+            timestamp TEXT
+        )
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+init_db()
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
@@ -70,19 +97,38 @@ if os.path.exists(MODEL_PATH):
 
 # ── History helpers ────────────────────────────────────────────────────────────
 def load_history() -> list:
-    if not os.path.exists(HISTORY_FILE):
-        return []
-    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT row_to_json(history) FROM history ORDER BY timestamp DESC")
+    rows = [r[0] for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return rows
 
 def save_history(history: list):
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, indent=2)
+    pass  # no longer needed, kept for compatibility
 
 def add_to_history(entry: dict):
-    history = load_history()
-    history.insert(0, entry)  # newest first
-    save_history(history)
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO history (id, link, filename, prediction, label, confidence, features, feedback, timestamp)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET feedback = EXCLUDED.feedback
+    """, (
+        entry.get("id"),
+        entry.get("link"),
+        entry.get("filename"),
+        entry.get("prediction"),
+        entry.get("label"),
+        entry.get("confidence"),
+        json.dumps(entry.get("features", {})),
+        entry.get("feedback"),
+        entry.get("timestamp")
+    ))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 # ── Download helper ────────────────────────────────────────────────────────────
