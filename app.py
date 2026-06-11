@@ -112,24 +112,18 @@ def add_to_history(entry: dict):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO history (id, link, filename, prediction, label, confidence, features, feedback, timestamp)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (id) DO UPDATE SET feedback = EXCLUDED.feedback
-    """, (
-        entry.get("id"),
-        entry.get("link"),
-        entry.get("filename"),
-        entry.get("prediction"),
-        entry.get("label"),
-        entry.get("confidence"),
-        json.dumps(entry.get("features", {})),
-        entry.get("feedback"),
-        entry.get("timestamp")
-    ))
+            INSERT INTO detections (reel_url, prediction, confidence, model_version, user_feedback)
+            VALUES (%s, %s, %s, %s, %s)
+            """, (
+            entry.get("link"),
+            entry.get("prediction"),
+            entry.get("confidence"),
+            "v1.0",
+            entry.get("feedback"),
+        ))
     conn.commit()
     cur.close()
     conn.close()
-
 
 # ── Download helper ────────────────────────────────────────────────────────────
 def download_reel(link: str, filename: str = None) -> str | None:
