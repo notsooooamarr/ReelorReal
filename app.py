@@ -358,23 +358,31 @@ async def admin_feedback(
     if code != ADMIN_CODE:
         return JSONResponse({"error": "Unauthorized"}, status_code=403)
 
-    history = load_history()
-    entry   = next((h for h in history if h["id"] == entry_id), None)
+    try:
+        db_id = int(entry_id)
+    except ValueError:
+        return JSONResponse({"error": "Invalid entry id"}, status_code=400)
 
-    if not entry:
+    conn = get_db()
+    cur = conn.cursor()
+
+    feedback_value = "correct" if correct == "yes" else "corrected"
+    cur.execute(
+        "UPDATE detections SET user_feedback = %s, feedback_timestamp = CURRENT_TIMESTAMP WHERE id = %s",
+        (feedback_value, db_id),
+    )
+    conn.commit()
+    updated = cur.rowcount
+    cur.close()
+    conn.close()
+
+    if not updated:
         return JSONResponse({"error": "Entry not found"}, status_code=404)
 
     if correct == "yes":
-        entry["feedback"] = "correct"
-        save_history(history)
         return JSONResponse({"status": "marked_correct"})
-
     else:
-        # Model was wrong — flip label and retrain
-        correct_label         = 1 if entry["prediction"] == 0 else 0
-        entry["feedback"]     = "corrected"
-        entry["correct_label"]= correct_label
-        save_history(history)
+        return JSONResponse({"status": "corrected_retraining"})
 
         # Retrain in background
         background_tasks.add_task(
