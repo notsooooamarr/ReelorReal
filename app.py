@@ -99,7 +99,7 @@ if os.path.exists(MODEL_PATH):
 def load_history() -> list:
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT row_to_json(history) FROM history ORDER BY timestamp DESC")
+    cur.execute("SELECT row_to_json(detections) FROM detections ORDER BY created_at DESC")
     rows = [r[0] for r in cur.fetchall()]
     cur.close()
     conn.close()
