@@ -99,11 +99,27 @@ if os.path.exists(MODEL_PATH):
 def load_history() -> list:
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT row_to_json(detections) FROM detections ORDER BY created_at DESC")
-    rows = [r[0] for r in cur.fetchall()]
+    cur.execute("""
+        SELECT id, reel_url, prediction, confidence, created_at, user_feedback
+        FROM detections ORDER BY created_at DESC
+    """)
+    rows = cur.fetchall()
     cur.close()
     conn.close()
-    return rows
+
+    history = []
+    for r in rows:
+        pred = int(r[2])
+        history.append({
+            "id":         r[0],
+            "link":       r[1],
+            "prediction": pred,
+            "label":      "AI Generated" if pred == 1 else "Real Video",
+            "confidence": r[3],
+            "timestamp":  r[4].strftime("%Y-%m-%d %H:%M:%S") if r[4] else "",
+            "feedback":   r[5],
+        })
+    return history
 
 def save_history(history: list):
     pass  # no longer needed, kept for compatibility
